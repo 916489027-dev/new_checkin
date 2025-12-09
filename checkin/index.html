@@ -43,7 +43,7 @@
       document.getElementById("status").innerHTML = '<p class="error">无效签到码</p>';
     } else {
       // 调用 Supabase 插入数据
-      supabaseInsert({ name, phone, checked_in: true })
+      supabaseInsert({ name, phone, checkin_time: true })
         .then(res => {
           if (res.ok) {
             document.getElementById("status").innerHTML = '<p class="success">✅ 签到成功！</p>';
