@@ -36,14 +36,18 @@
 
     // 从 URL 获取参数
     const urlParams = new URLSearchParams(window.location.search);
-    const name = urlParams.get("name");
-    const phone = urlParams.get("phone");
+// 获取并清理参数
+const name = (urlParams.get("name") || "").trim();
+const phone = (urlParams.get("phone") || "").trim();
 
-    if (!name || !phone) {
-      document.getElementById("status").innerHTML = '<p class="error">无效签到码</p>';
-    } else {
-      // 调用 Supabase 插入数据
-      supabaseInsert({ name, phone, checkin_time :true })
+// 严格校验
+if (!name || !phone) {
+  document.getElementById("status").innerHTML = '<p class="error">无效签到码</p>';
+  return;
+}
+
+// 只传必要字段
+supabaseInsert({ name, phone })
         .then(res => {
           if (res.ok) {
             document.getElementById("status").innerHTML = '<p class="success">✅ 签到成功！</p>';
