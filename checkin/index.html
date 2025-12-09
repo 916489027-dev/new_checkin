@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>核销中...</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 50px 20px; }
+    .loading { color: #007AFF; }
+    .success { color: green; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <div id="status" class="loading">正在核销，请稍候...</div>
+
+  <script>
+    // === Supabase 配置 ===
+    const SUPABASE_URL = "https://jibgyawyvyihwqwrwdef.supabase.co"; // ← 替换
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYmd5YXd5dnlpaHdxd3J3ZGVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDQwMzcsImV4cCI6MjA4MDc4MDAzN30.tQlHfVFxJNdqW0QkaBw4LiSUKWWyCcRL6kuJ84CCM6w"; // ← 替换
+
+    // 简易 fetch 封装
+    async function supabaseInsert(data) {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/attendees`, {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify(data)
+      });
+      return response;
+    }
+
+    // 从 URL 获取参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const name = urlParams.get("name");
+    const phone = urlParams.get("phone");
+
+    if (!name || !phone) {
+      document.getElementById("status").innerHTML = '<p class="error">无效签到码</p>';
+    } else {
+      // 调用 Supabase 插入数据
+      supabaseInsert({ name, phone, checked_in: true })
+        .then(res => {
+          if (res.ok) {
+            document.getElementById("status").innerHTML = '<p class="success">✅ 签到成功！</p>';
+          } else {
+            // 可能是重复提交（手机号唯一）
+            res.json().then(err => {
+              if (err.message?.includes("duplicate")) {
+                document.getElementById("status").innerHTML = '<p class="success">✅ 已签到（重复提交）</p>';
+              } else {
+                throw new Error("未知错误");
+              }
+            }).catch(() => {
+              document.getElementById("status").innerHTML = '<p class="error">❌ 签到失败，请重试</p>';
+            });
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          document.getElementById("status").innerHTML = '<p class="error">❌ 网络错误</p>';
+        });
+    }
+  </script>
+</body>
+</html>
