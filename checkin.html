@@ -19,8 +19,8 @@
   const SUPABASE_URL = "https://jibgyawyvyihwqwrwdef.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYmd5YXd5dnlpaHdxd3J3ZGVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDQwMzcsImV4cCI6MjA4MDc4MDAzN30.tQlHfVFxJNdqW0QkaBw4LiSUKWWyCcRL6kuJ84CCM6w";
 
-  // ✅ 带超时的 fetch 封装（核心优化！）
-  async function supabaseInsertWithTimeout(data, timeoutMs = 8000) {
+  // ✅ 带超时的 fetch（参考你之前的逻辑 + 表单页的 headers）
+  async function insertAttendee(name, phone, timeoutMs = 8000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -29,12 +29,12 @@
         method: "POST",
         headers: {
           "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          // ⚠️ 移除了 Authorization 行（和你的表单页一致）
           "Content-Type": "application/json",
           "Prefer": "return=minimal"
         },
-        body: JSON.stringify(data),
-        signal: controller.signal // 关键：绑定 abort 信号
+        body: JSON.stringify({ name, phone }),
+        signal: controller.signal
       });
 
       clearTimeout(timeoutId);
@@ -48,44 +48,47 @@
     }
   }
 
-  // 获取并清理参数
+  // 获取 URL 参数
   const urlParams = new URLSearchParams(window.location.search);
   const name = (urlParams.get("name") || "").trim();
   const phone = (urlParams.get("phone") || "").trim();
-
   const statusEl = document.getElementById("status");
 
-  // 校验
+  // 校验参数
   if (!name || !phone) {
     statusEl.innerHTML = '<p class="error">❌ 无效签到码</p>';
     return;
   }
 
-  // ✅ 立即更新状态（让用户知道已开始）
+  // 立即反馈
   statusEl.innerHTML = '<p class="loading">⏳ 正在核销...</p>';
 
   // 执行插入
-  supabaseInsertWithTimeout({ name, phone })
-    .then(res => {
+  insertAttendee(name, phone)
+    .then(async (res) => {
       if (res.ok) {
         statusEl.innerHTML = '<p class="success">✅ 签到成功！</p>';
       } else {
-        // 检查是否重复（Supabase 返回 409 或错误含 duplicate）
-        return res.text().then(text => {
-          if (text.includes("duplicate") || text.includes("Unique")) {
+        // ✅ 参考表单页：精准判断 409 + 唯一约束错误
+        if (res.status === 409) {
+          const errorText = await res.text();
+          // 检查是否因手机号唯一约束冲突（假设你的 attendees 表有 phone 唯一索引）
+          if (errorText.includes('attendees_phone_key') || errorText.includes('Unique')) {
             statusEl.innerHTML = '<p class="success">✅ 已签到（无需重复）</p>';
-          } else {
-            throw new Error("SERVER_ERROR");
+            return;
           }
-        });
+        }
+        // 其他错误
+        statusEl.innerHTML = '<p class="error">❌ 签到失败，请重试</p>';
+        console.error("Supabase error:", await res.text());
       }
     })
-    .catch(err => {
-      console.error("签到失败:", err);
+    .catch((err) => {
+      console.error("Request failed:", err);
       if (err.message === 'TIMEOUT') {
         statusEl.innerHTML = '<p class="error">⚠️ 网络较慢，请重试</p>';
       } else {
-        statusEl.innerHTML = '<p class="error">❌ 签到失败，请重试</p>';
+        statusEl.innerHTML = '<p class="error">❌ 网络错误</p>';
       }
     });
 </script>
