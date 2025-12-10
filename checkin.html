@@ -14,13 +14,17 @@
 <body>
   <div id="status" class="loading">正在核销，请稍候...</div>
 
-  <script>
-    // === Supabase 配置 ===
-    const SUPABASE_URL = "https://jibgyawyvyihwqwrwdef.supabase.co"; // ← 替换
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYmd5YXd5dnlpaHdxd3J3ZGVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDQwMzcsImV4cCI6MjA4MDc4MDAzN30.tQlHfVFxJNdqW0QkaBw4LiSUKWWyCcRL6kuJ84CCM6w"; // ← 替换
+<script>
+  // === Supabase 配置 ===
+  const SUPABASE_URL = "https://jibgyawyvyihwqwrwdef.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYmd5YXd5dnlpaHdxd3J3ZGVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDQwMzcsImV4cCI6MjA4MDc4MDAzN30.tQlHfVFxJNdqW0QkaBw4LiSUKWWyCcRL6kuJ84CCM6w";
 
-    // 简易 fetch 封装
-    async function supabaseInsert(data) {
+  // ✅ 带超时的 fetch 封装（核心优化！）
+  async function supabaseInsertWithTimeout(data, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/attendees`, {
         method: "POST",
         headers: {
@@ -29,46 +33,61 @@
           "Content-Type": "application/json",
           "Prefer": "return=minimal"
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        signal: controller.signal // 关键：绑定 abort 信号
       });
+
+      clearTimeout(timeoutId);
       return response;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error('TIMEOUT');
+      }
+      throw err;
     }
+  }
 
-    // 从 URL 获取参数
-    const urlParams = new URLSearchParams(window.location.search);
-// 获取并清理参数
-const name = (urlParams.get("name") || "").trim();
-const phone = (urlParams.get("phone") || "").trim();
+  // 获取并清理参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const name = (urlParams.get("name") || "").trim();
+  const phone = (urlParams.get("phone") || "").trim();
 
-// 严格校验
-if (!name || !phone) {
-  document.getElementById("status").innerHTML = '<p class="error">无效签到码</p>';
-  return;
-}
+  const statusEl = document.getElementById("status");
 
-// 只传必要字段
-supabaseInsert({ name, phone })
-        .then(res => {
-          if (res.ok) {
-            document.getElementById("status").innerHTML = '<p class="success">✅ 签到成功！</p>';
+  // 校验
+  if (!name || !phone) {
+    statusEl.innerHTML = '<p class="error">❌ 无效签到码</p>';
+    return;
+  }
+
+  // ✅ 立即更新状态（让用户知道已开始）
+  statusEl.innerHTML = '<p class="loading">⏳ 正在核销...</p>';
+
+  // 执行插入
+  supabaseInsertWithTimeout({ name, phone })
+    .then(res => {
+      if (res.ok) {
+        statusEl.innerHTML = '<p class="success">✅ 签到成功！</p>';
+      } else {
+        // 检查是否重复（Supabase 返回 409 或错误含 duplicate）
+        return res.text().then(text => {
+          if (text.includes("duplicate") || text.includes("Unique")) {
+            statusEl.innerHTML = '<p class="success">✅ 已签到（无需重复）</p>';
           } else {
-            // 可能是重复提交（手机号唯一）
-            res.json().then(err => {
-              if (err.message?.includes("duplicate")) {
-                document.getElementById("status").innerHTML = '<p class="success">✅ 已签到（重复提交）</p>';
-              } else {
-                throw new Error("未知错误");
-              }
-            }).catch(() => {
-              document.getElementById("status").innerHTML = '<p class="error">❌ 签到失败，请重试</p>';
-            });
+            throw new Error("SERVER_ERROR");
           }
-        })
-        .catch(err => {
-          console.error(err);
-          document.getElementById("status").innerHTML = '<p class="error">❌ 网络错误</p>';
         });
-    }
-  </script>
+      }
+    })
+    .catch(err => {
+      console.error("签到失败:", err);
+      if (err.message === 'TIMEOUT') {
+        statusEl.innerHTML = '<p class="error">⚠️ 网络较慢，请重试</p>';
+      } else {
+        statusEl.innerHTML = '<p class="error">❌ 签到失败，请重试</p>';
+      }
+    });
+</script>
 </body>
 </html>
